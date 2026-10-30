@@ -1,0 +1,12 @@
+model:
+  provider: mock
+  model: mock-investigator
+agent:
+  max_steps: 10
+execution:
+  backend: local
+experiment:
+  numerical_precision: 40
+evaluation:
+  benchmark_source: controlled
+  num_problems: 2

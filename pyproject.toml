@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mia"
+version = "0.1.0"
+description = "Mathematical Investigation Agent (MIA) - Autonomous mathematical exploration, experimentation, and verification"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "MIA Research Team" }
+]
+keywords = [
+    "mathematics",
+    "agentic-ai",
+    "automated-reasoning",
+    "symbolic-computation",
+    "counterexample-search",
+    "verification"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics"
+]
+dependencies = [
+    "pydantic>=2.0.0",
+    "typer>=0.9.0",
+    "sympy>=1.12",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "pypdf>=3.0.0",
+    "pyyaml>=6.0",
+    "httpx>=0.25.0",
+    "rich>=12.0.0",
+    "modal>=1.0.0",
+    "openai>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0"
+]
+
+[project.scripts]
+mia = "mia.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests requiring network or external credentials",
+    "modal: marks tests requiring active Modal credentials",
+    "llm: marks tests requiring external LLM API credentials"
+]

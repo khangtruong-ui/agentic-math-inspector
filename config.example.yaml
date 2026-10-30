@@ -1,0 +1,218 @@
+# =====================================================================
+# Mathematical Investigation Agent (MIA) - Example Configuration File
+# =====================================================================
+# Precedence: CLI Overrides > Environment Variables > This File > Defaults
+# Environment variables follow the format: MIA__<SECTION>__<KEY>
+# e.g., export MIA__MODEL__PROVIDER="openai"
+
+# ---------------------------------------------------------------------
+# 1. Model Settings
+# ---------------------------------------------------------------------
+model:
+  # Provider options: 'openai', 'anthropic', 'gemini', 'mock'
+  # Default 'mock' provides deterministic local investigation without paid API calls
+  provider: "mock"
+  
+  # Model name/identifier (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022', 'mock-investigator')
+  model: "mock-investigator"
+  
+  # Custom API endpoint URL (optional, useful for Ollama, vLLM, or OpenRouter)
+  api_endpoint: null
+  
+  # Environment variable name containing the API key
+  # The application will look up this variable at runtime and never print it in logs
+  api_key_env_var: "OPENAI_API_KEY"
+  
+  # Sampling temperature for reasoning and generation
+  temperature: 0.2
+  
+  # Maximum completion tokens per request
+  max_tokens: 4096
+  
+  # Optional reasoning budget for reasoning models (e.g. o1/o3/Claude thinking)
+  reasoning_budget: null
+  
+  # Network timeout for model requests in seconds
+  timeout_seconds: 60.0
+  
+  # Max retries on rate limits or transient network errors
+  max_retries: 3
+  
+  # Maximum concurrent model requests
+  max_concurrency: 1
+  
+  # Whether to use structured JSON tool calling
+  structured_output: true
+
+# ---------------------------------------------------------------------
+# 2. Agent Settings
+# ---------------------------------------------------------------------
+agent:
+  # Hard limit on total investigation loop steps
+  max_steps: 15
+  
+  # Hard cap on LLM calls throughout the investigation
+  max_model_calls: 20
+  
+  # Hard cap on tool calls
+  max_tool_calls: 30
+  
+  # Maximum allowable failed tool calls before pivoting
+  max_failed_tool_calls: 5
+  
+  # Maximum wall-clock time in seconds for a single problem investigation
+  max_wall_clock_seconds: 300.0
+  
+  # Maximum repeated identical actions before forcing a strategy revision
+  max_repeated_actions: 3
+  
+  # Maximum number of executable experiment runs
+  max_experiments: 10
+  
+  # Consecutive steps without new mathematical evidence before halting
+  max_nonproductive_steps: 4
+  
+  # Maximum messages retained in conversation history
+  max_history_messages: 50
+  
+  # Step threshold to trigger state summarization
+  state_summarization_threshold: 10
+  
+  # Persist investigation states to SQLite database
+  persistent_memory: true
+  
+  # Allow execution of parallel experiments where backend supports it
+  parallel_experiments: false
+  
+  # Allow the agent to revise its candidate hypothesis upon contradiction
+  allow_hypothesis_revision: true
+  
+  # Target verification level: 'LEVEL_1' (empirical), 'LEVEL_2' (symbolic/exact), 'LEVEL_3' (proof check)
+  required_verification_level: "LEVEL_2"
+
+# ---------------------------------------------------------------------
+# 3. Experiment Settings
+# ---------------------------------------------------------------------
+experiment:
+  # Seed for reproducible test-case and counterexample generation
+  random_seed: 42
+  
+  # Per-experiment execution timeout in seconds
+  max_runtime_seconds: 30.0
+  
+  # Maximum test cases generated per test-case tool invocation
+  max_test_cases: 100
+  
+  # Numerical precision digits for SymPy / mpmath
+  numerical_precision: 50
+  
+  # Numerical tolerance for floating-point comparisons
+  numerical_tolerance: 1.0e-7
+  
+  # Maximum array elements in numerical simulations
+  max_array_elements: 10000
+  
+  # Max stdout and stderr capture bytes before truncation
+  max_stdout_bytes: 65536
+  max_stderr_bytes: 65536
+  
+  # Maximum size of saved execution artifacts
+  max_artifact_bytes: 1048576
+  
+  # Enable generation of matplotlib visualization scripts
+  enable_plotting: false
+  
+  # Enable symbolic computation tool
+  enable_symbolic: true
+  
+  # Whether experiments can import optional scientific packages
+  allow_optional_dependencies: false
+
+# ---------------------------------------------------------------------
+# 4. Execution Settings
+# ---------------------------------------------------------------------
+execution:
+  # Execution backend: 'local' (isolated subprocess) or 'modal' (remote cloud function)
+  backend: "local"
+  
+  # Modal App name when backend is 'modal'
+  modal_app_name: "mia-executor"
+  
+  # Modal remote function name
+  modal_function_name: "run_remote_experiment"
+  
+  # CPU cores allocated per experiment
+  cpu: 1.0
+  
+  # Memory allocated in megabytes
+  memory_mb: 1024
+  
+  # Optional GPU accelerator (null for CPU execution; ordinary math does not require GPU)
+  gpu: null
+  
+  # Timeout in seconds for experiment execution
+  timeout_seconds: 30.0
+  
+  # Max concurrent experiments
+  max_parallel: 4
+  
+  # Dependency policy: 'preconfigured' uses pinned standard scientific image
+  dependency_policy: "preconfigured"
+  
+  # Directory where experiment artifacts are stored
+  artifact_storage_dir: "runs/artifacts"
+  
+  # Disable network access within experiment execution sandboxes
+  network_enabled: false
+  
+  # Strip API keys and secrets from execution environment
+  isolate_environment: true
+
+# ---------------------------------------------------------------------
+# 5. Evaluation Settings
+# ---------------------------------------------------------------------
+evaluation:
+  # Benchmark source: 'imo', 'hendrycks_math', or 'controlled'
+  benchmark_source: "controlled"
+  
+  # Dataset split (e.g. 'train', 'test') if applicable
+  split: null
+  
+  # Number of problems to evaluate
+  num_problems: 5
+  
+  # Random seed for reproducible problem sampling
+  random_seed: 42
+  
+  # Wall-clock time budget per problem in seconds
+  time_budget_per_problem: 120.0
+  
+  # Total time budget across the evaluation run
+  max_total_budget: 600.0
+  
+  # Verification requirement for evaluation: 'LEVEL_1', 'LEVEL_2', or 'LEVEL_3'
+  verification_requirements: "LEVEL_1"
+  
+  # Keep reference answers separated from solving agent, available only to evaluator
+  reference_answers_for_evaluator: true
+  
+  # Output directory for evaluation results, metrics, and reports
+  output_dir: "runs/evaluations"
+  
+  # Baseline configurations to compare:
+  # 'A': Reasoning-only baseline (no executable tools)
+  # 'B': Tool-enabled agent (stateless tools)
+  # 'C': Tool-enabled agent with persistent state & adaptive revision
+  baseline_configs:
+    - "A"
+    - "B"
+    - "C"
+  
+  # Whether failed problem attempts are retried
+  retries_allowed: false
+
+# ---------------------------------------------------------------------
+# Storage and Trace Paths
+# ---------------------------------------------------------------------
+database_url: "sqlite:///runs/mia.db"
+trace_dir: "runs/traces"

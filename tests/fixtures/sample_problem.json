@@ -1,0 +1,8 @@
+{
+  "problem_id": "fixture-fibonacci",
+  "source": "fixture",
+  "statement": "Find the 10th Fibonacci number F_10 where F_0 = 0, F_1 = 1.",
+  "subject": "number_theory",
+  "difficulty": "Level 1",
+  "metadata": {"answer": 55}
+}
