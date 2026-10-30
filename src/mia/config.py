@@ -41,7 +41,7 @@ class ModelConfig(StrictBaseModel):
         description="Environment variable containing the API key"
     )
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=4096, gt=0)
+    max_tokens: int = Field(default=2048, gt=0)
     reasoning_budget: Optional[int] = Field(
         default=None,
         description="Reasoning / thinking token budget where supported"

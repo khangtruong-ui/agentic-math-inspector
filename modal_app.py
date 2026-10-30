@@ -79,7 +79,7 @@ class ModalHuggingFaceLLM:
     def generate(
         self,
         messages: List[Dict[str, str]],
-        max_new_tokens: int = 1024,
+        max_new_tokens: int = 2048,
         temperature: float = 0.2
     ) -> Dict[str, Any]:
         """Generate response given chat messages."""

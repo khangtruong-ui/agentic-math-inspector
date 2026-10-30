@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import typer
 import yaml
 from rich.console import Console
@@ -16,6 +16,7 @@ from mia.config import AppConfig, load_config
 from mia.evaluation.runner import EvaluationRunner
 from mia.execution.modal_backend import ModalExecutionBackend
 from mia.models import AgentProblemView, ProblemRecord
+from mia.reporting.format_math import format_terminal_math
 from mia.reporting.reporter import Reporter
 from mia.sources import SOURCES, get_source
 from mia.storage.experiment_store import ExperimentStore
@@ -134,7 +135,7 @@ def list_problems(
 
         for p in probs[:limit]:
             preview = p.statement[:70] + "..." if len(p.statement) > 70 else p.statement
-            table.add_row(p.problem_id, p.subject or "general", p.difficulty or "N/A", preview)
+            table.add_row(p.problem_id, p.subject or "general", p.difficulty or "N/A", format_terminal_math(preview))
 
         console.print(table)
     except Exception as e:
@@ -163,12 +164,12 @@ def show_problem(
     panel_content = f"[bold]Problem ID:[/bold] {found.problem_id}\n"
     panel_content += f"[bold]Source:[/bold] {found.source} ({found.source_url or 'N/A'})\n"
     panel_content += f"[bold]Subject:[/bold] {found.subject or 'N/A'} | [bold]Difficulty:[/bold] {found.difficulty or 'N/A'}\n\n"
-    panel_content += f"[bold]Statement:[/bold]\n{found.statement}\n"
+    panel_content += f"[bold]Statement:[/bold]\n{format_terminal_math(found.statement)}\n"
 
     if show_answer and found.official_answer:
-        panel_content += f"\n[bold yellow]Official Answer (Evaluator Only):[/bold yellow]\n{found.official_answer}\n"
+        panel_content += f"\n[bold yellow]Official Answer (Evaluator Only):[/bold yellow]\n{format_terminal_math(found.official_answer)}\n"
         if found.reference_solution:
-            panel_content += f"\n[bold yellow]Reference Solution:[/bold yellow]\n{found.reference_solution}\n"
+            panel_content += f"\n[bold yellow]Reference Solution:[/bold yellow]\n{format_terminal_math(found.reference_solution)}\n"
 
     console.print(Panel(panel_content, title=f"Problem: {problem_id}", border_style="cyan"))
 
@@ -225,14 +226,96 @@ def solve_problem(
 
         console.print(Panel(
             f"[bold]Investigating Problem:[/bold] {problem_view.problem_id}\n"
-            f"[bold]Statement:[/bold] {problem_view.statement}\n"
-            f"[bold]Backend:[/bold] {cfg.execution.backend} | [bold]Provider:[/bold] {cfg.model.provider}",
-            title="[bold green]MIA Investigation Started[/bold green]",
+            f"[bold]Statement:[/bold]\n{format_terminal_math(problem_view.statement)}\n\n"
+            f"[bold]Backend:[/bold] {cfg.execution.backend} | [bold]Provider:[/bold] {cfg.model.provider} | [bold]Model:[/bold] {cfg.model.model}",
+            title="[bold green]MIA Mathematical Investigation Started[/bold green]",
             border_style="green"
         ))
 
+        def live_event_handler(event: str, data: Dict[str, Any]) -> None:
+            if event == "model_response":
+                step = data.get("step", 1)
+                content = (data.get("content") or "").strip()
+                if content:
+                    formatted_content = format_terminal_math(content)
+                    console.print()
+                    console.print(Panel(
+                        formatted_content,
+                        title=f"[bold cyan]Step {step}: LLM Reasoning & Mathematical Strategy[/bold cyan]",
+                        subtitle="[dim]Deduction, hypothesis & failure mode analysis[/dim]",
+                        border_style="cyan"
+                    ))
+
+            elif event == "tool_executing":
+                tool = data.get("tool", "")
+                args = data.get("args", {})
+                args_summary = []
+                for k, v in args.items():
+                    v_str = str(v).replace("\n", " ")
+                    if len(v_str) > 65:
+                        v_str = v_str[:62] + "..."
+                    args_summary.append(f"[dim]{k}=[/dim]{v_str}")
+                console.print(f"⚡ [bold yellow]Action Selected:[/bold yellow] [bold green]{tool}[/bold green]({', '.join(args_summary)})")
+
+            elif event == "tool_success":
+                tool = data.get("tool", "")
+                res = data.get("result", {})
+                summary = ""
+                if "stdout" in res and res["stdout"]:
+                    summary = str(res["stdout"]).strip()
+                elif "result" in res and res["result"]:
+                    summary = str(res["result"]).strip()
+                elif "values" in res:
+                    summary = f"Evaluated points: {res['values']}"
+                elif "first_counterexample" in res:
+                    summary = f"Counterexample: {res['first_counterexample']}"
+                elif "summary" in res:
+                    summary = str(res["summary"])
+                else:
+                    summary = json.dumps(res, default=str)
+                if len(summary) > 400:
+                    summary = summary[:400] + "... [dim](truncated)[/dim]"
+                formatted_summary = format_terminal_math(summary)
+                console.print(Panel(
+                    formatted_summary,
+                    title=f"[bold blue]🔬 Experiment Observation Feedback ({tool})[/bold blue]",
+                    border_style="blue"
+                ))
+
+            elif event == "tool_failure":
+                tool = data.get("tool", "")
+                err = data.get("error", "Unknown error")
+                console.print(f"[bold red]❌ Tool Failure ({tool}):[/bold red] {err}")
+
+            elif event == "counterexample_discovered":
+                ce = data.get("counterexample")
+                console.print(Panel(
+                    f"[bold red]CONTRADICTION DETECTED / COUNTEREXAMPLE FOUND[/bold red]\n"
+                    f"Computational feedback refuted the active hypothesis with counterexample:\n"
+                    f"[bold yellow]{ce}[/bold yellow]\n"
+                    f"[italic]Revising mathematical hypothesis and updating strategy...[/italic]",
+                    title="[bold red]🚨 Hypothesis Contradiction & Adaptive Revision[/bold red]",
+                    border_style="red"
+                ))
+
+            elif event == "hypothesis_formed":
+                hyp = format_terminal_math(data.get("hypothesis", ""))
+                console.print(f"[bold magenta]💡 Active Hypothesis Formed:[/bold magenta] {hyp}")
+
+            elif event == "hypothesis_revised":
+                rev = format_terminal_math(data.get("revised", ""))
+                console.print(f"[bold magenta]🔄 Hypothesis Revised:[/bold magenta] {rev}")
+
+            elif event == "verification_completed":
+                v = data.get("verification", {})
+                lvl = v.get("level", "LEVEL_2")
+                stat = v.get("status", "VERIFIED")
+                s_color = "green" if stat == "VERIFIED" else "yellow"
+                conf = v.get("confidence", 1.0)
+                console.print(f"[bold green]🛡️ Verification Outcome:[/bold green] Level {lvl} -> [{s_color}]{stat}[/{s_color}] (Confidence: {conf:.1%})")
+
         agent = MathematicalAgent(cfg)
-        report = agent.investigate(problem_view)
+        report = agent.investigate(problem_view, on_event=live_event_handler)
 
         # Print Investigation Outcome
         console.print("\n" + "=" * 60)
@@ -241,20 +324,21 @@ def solve_problem(
         console.print(f"Steps: {report.total_steps} | Experiments: {report.total_experiments} | Duration: {report.wall_clock_seconds:.2f}s")
 
         if report.hypotheses_evaluated:
-            console.print("\n[bold]Hypotheses Evaluated:[/bold]")
+            console.print("\n[bold]Hypotheses Evaluated & Lifecycle:[/bold]")
             for h in report.hypotheses_evaluated:
                 status_color = "green" if h.status.value in ("CONFIRMED", "ACTIVE") else "red"
-                console.print(f"  - [{status_color}][{h.status.value}][/{status_color}] {h.text}")
+                console.print(f"  - [{status_color}][{h.status.value}][/{status_color}] {format_terminal_math(h.text)}")
 
         if report.candidate_solution:
-            console.print(Panel(report.candidate_solution, title="Final Solution / Report", border_style="cyan"))
+            formatted_solution = format_terminal_math(report.candidate_solution)
+            console.print(Panel(formatted_solution, title="[bold green]Final Solution & Mathematical Report[/bold green]", border_style="cyan"))
 
         if report.verification:
             v = report.verification
             v_color = "green" if v.status.value == "VERIFIED" else "yellow"
-            console.print(f"\nVerification Level: {v.level.value} | Status: [{v_color}]{v.status.value}[/{v_color}] (Confidence: {v.confidence:.1%})")
+            console.print(f"\n[bold]Multi-tier Verification:[/bold] Level: {v.level.value} | Status: [{v_color}]{v.status.value}[/{v_color}] (Confidence: {v.confidence:.1%})")
             for ev in v.evidence:
-                console.print(f"  ✓ {ev}")
+                console.print(f"  ✓ {format_terminal_math(ev)}")
 
     except Exception as e:
         console.print(f"[bold red]Investigation failed:[/bold red] {e}")
@@ -428,7 +512,7 @@ def modal_smoke_test():
 def modal_run_llm(
     prompt: str = typer.Argument(..., help="Mathematical question or prompt for the LLM"),
     model: str = typer.Option("Qwen/Qwen2.5-Math-1.5B-Instruct", "--model", "-m", help="Hugging Face model identifier to run on GPU"),
-    max_tokens: int = typer.Option(512, "--max-tokens", help="Max generation tokens"),
+    max_tokens: int = typer.Option(2048, "--max-tokens", help="Max generation tokens"),
     temperature: float = typer.Option(0.2, "--temperature", help="Sampling temperature")
 ):
     """Pull an open-weights LLM from Hugging Face and run inference on Modal GPU."""
@@ -439,6 +523,7 @@ def modal_run_llm(
         if cwd_str not in sys.path:
             sys.path.insert(0, cwd_str)
         import modal_app
+        from mia.reporting.format_math import format_terminal_math
 
         console.print(f"Submitting inference request for Hugging Face model '[bold cyan]{model}[/bold cyan]' on Modal GPU...")
         try:
@@ -459,8 +544,9 @@ def modal_run_llm(
                     temperature=temperature
                 )
 
+        formatted_output = format_terminal_math(res.get("content", ""))
         console.print(Panel(
-            res.get("content", ""),
+            formatted_output,
             title=f"[bold green]Hugging Face Model Response ({model})[/bold green]",
             border_style="green"
         ))

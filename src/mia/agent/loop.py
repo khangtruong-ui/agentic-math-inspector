@@ -6,7 +6,7 @@ import datetime
 import hashlib
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from mia.agent.prompts import INITIAL_ASSESSMENT_PROMPT, SYSTEM_PROMPT
 from mia.agent.state import ActiveInvestigationState
@@ -53,7 +53,8 @@ class MathematicalAgent:
         self,
         problem: AgentProblemView,
         investigation_id: Optional[str] = None,
-        max_steps_override: Optional[int] = None
+        max_steps_override: Optional[int] = None,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> InvestigationReport:
         """Run the autonomous mathematical investigation cycle."""
         inv_id = investigation_id or f"inv-{uuid.uuid4().hex[:8]}"
@@ -61,9 +62,17 @@ class MathematicalAgent:
 
         max_steps = max_steps_override or self.config.agent.max_steps
 
+        def emit(event: str, data: Dict[str, Any]) -> None:
+            self.traces.log_event(inv_id, event, data)
+            if on_event:
+                try:
+                    on_event(event, data)
+                except Exception:
+                    pass
+
         # 1. Initialize persistent storage and trace
         self.store.create_investigation(inv_id, problem)
-        self.traces.log_event(inv_id, "investigation_started", {
+        emit("investigation_started", {
             "problem_id": problem.problem_id,
             "subject": problem.subject,
             "statement": problem.statement,
@@ -108,7 +117,7 @@ class MathematicalAgent:
 
             # Execute Model Call
             state.model_calls_count += 1
-            self.traces.log_event(inv_id, "model_request", {
+            emit("model_request", {
                 "step": state.step_count,
                 "history_length": len(messages)
             })
@@ -119,14 +128,15 @@ class MathematicalAgent:
                     tools=self.tools.list_tools()
                 )
             except Exception as e:
-                self.traces.log_event(inv_id, "model_error", {"error": str(e), "step": state.step_count})
+                emit("model_error", {"error": str(e), "step": state.step_count})
                 state.status = InvestigationStatus.FAILED
                 state.termination_reason = f"Model call failed: {e}"
                 break
 
-            self.traces.log_event(inv_id, "model_response", {
+            emit("model_response", {
                 "step": state.step_count,
                 "content": response.content,
+                "tool_calls": response.tool_calls,
                 "tool_calls_count": len(response.tool_calls),
                 "tokens": response.usage.model_dump(),
                 "latency": response.latency_seconds
@@ -142,7 +152,7 @@ class MathematicalAgent:
 
             # Extract any newly stated hypotheses or conjectures
             if response.content:
-                self._extract_hypotheses_and_evidence(state, response.content)
+                self._extract_hypotheses_and_evidence(state, response.content, emit_fn=emit)
 
             # If no tool calls, model provided final reasoning / answer
             if not response.tool_calls:
@@ -223,13 +233,20 @@ class MathematicalAgent:
                     "hypotheses": [h.model_dump() for h in state.hypotheses_history]
                 }
 
+                # Emit tool executing event
+                emit("tool_executing", {
+                    "step": state.step_count,
+                    "tool": tool_name,
+                    "args": args
+                })
+
                 # Execute tool
                 tool_exec_res = self.tools.execute(tool_name, args, context=context)
 
                 if not tool_exec_res.get("success"):
                     state.failed_tool_calls_count += 1
                     err_msg = tool_exec_res.get("error", "Unknown tool error")
-                    self.traces.log_event(inv_id, "tool_failure", {"tool": tool_name, "error": err_msg})
+                    emit("tool_failure", {"step": state.step_count, "tool": tool_name, "error": err_msg})
                     messages.append(ChatMessage(
                         role="tool",
                         name=tool_name,
@@ -248,8 +265,10 @@ class MathematicalAgent:
                 )
                 state.experiments_history.append(exp_record)
                 self.store.record_experiment(inv_id, tool_name, args, exp_record)
-                self.traces.log_event(inv_id, "tool_success", {
+                emit("tool_success", {
+                    "step": state.step_count,
                     "tool": tool_name,
+                    "args": args,
                     "result": tool_result_payload
                 })
 
@@ -264,7 +283,7 @@ class MathematicalAgent:
                                 h.status = HypothesisStatus.REFUTED
                                 h.contradicting_evidence.append(f"Counterexample discovered: {ce}")
                                 self.store.record_hypothesis(inv_id, h)
-                    self.traces.log_event(inv_id, "counterexample_discovered", {"counterexample": ce})
+                    emit("counterexample_discovered", {"step": state.step_count, "counterexample": ce})
 
                 # Check for verification result
                 if tool_name == "verify_solution":
@@ -280,6 +299,7 @@ class MathematicalAgent:
                     )
                     state.verification_result = v_res
                     self.store.record_verification(inv_id, v_res)
+                    emit("verification_completed", {"step": state.step_count, "verification": v_res.model_dump()})
                     if v_res.status == VerificationStatus.VERIFIED:
                         state.status = InvestigationStatus.SOLVED
 
@@ -321,7 +341,7 @@ class MathematicalAgent:
         )
 
         final_report = state.to_report()
-        self.traces.log_event(inv_id, "investigation_completed", final_report.model_dump())
+        emit("investigation_completed", final_report.model_dump())
         return final_report
 
     @staticmethod
@@ -351,7 +371,12 @@ class MathematicalAgent:
                 elif current_section == "unresolved":
                     state.unresolved_questions.append(bullet)
 
-    def resume(self, investigation_id: str, additional_steps: int = 5) -> InvestigationReport:
+    def resume(
+        self,
+        investigation_id: str,
+        additional_steps: int = 5,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> InvestigationReport:
         """Resume an interrupted investigation from persistent state."""
         inv_data = self.store.get_investigation(investigation_id)
         if not inv_data:
@@ -361,10 +386,16 @@ class MathematicalAgent:
         return self.investigate(
             problem=problem,
             investigation_id=investigation_id,
-            max_steps_override=additional_steps
+            max_steps_override=additional_steps,
+            on_event=on_event
         )
 
-    def _extract_hypotheses_and_evidence(self, state: ActiveInvestigationState, text: str) -> None:
+    def _extract_hypotheses_and_evidence(
+        self,
+        state: ActiveInvestigationState,
+        text: str,
+        emit_fn: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> None:
         """Scan assistant text for explicit hypotheses and update state."""
         lines = text.split("\n")
         for line in lines:
@@ -374,12 +405,18 @@ class MathematicalAgent:
                 if hyp_text and hyp_text != state.active_hypothesis:
                     rec = state.record_hypothesis(hyp_text)
                     self.store.record_hypothesis(state.investigation_id, rec)
-                    self.traces.log_event(state.investigation_id, "hypothesis_formed", {"hypothesis": hyp_text})
+                    if emit_fn:
+                        emit_fn("hypothesis_formed", {"hypothesis": hyp_text})
+                    else:
+                        self.traces.log_event(state.investigation_id, "hypothesis_formed", {"hypothesis": hyp_text})
             elif "revised hypothesis:" in line_str.lower():
                 rev_text = line_str.split(":", 1)[-1].strip()
                 rec = state.record_hypothesis(rev_text, status=HypothesisStatus.ACTIVE)
                 self.store.record_hypothesis(state.investigation_id, rec)
-                self.traces.log_event(state.investigation_id, "hypothesis_revised", {"revised": rev_text})
+                if emit_fn:
+                    emit_fn("hypothesis_revised", {"revised": rev_text})
+                else:
+                    self.traces.log_event(state.investigation_id, "hypothesis_revised", {"revised": rev_text})
 
     @staticmethod
     def _action_signature(tool_name: str, args: Dict[str, Any]) -> str:

@@ -27,7 +27,7 @@ model:
   temperature: 0.2
   
   # Maximum completion tokens per request
-  max_tokens: 4096
+  max_tokens: 2048
   
   # Optional reasoning budget for reasoning models (e.g. o1/o3/Claude thinking)
   reasoning_budget: null

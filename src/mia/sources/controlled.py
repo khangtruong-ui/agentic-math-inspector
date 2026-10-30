@@ -177,7 +177,98 @@ class ControlledProblemSource(BaseProblemSource):
             metadata={"category": "optimization", "min_value": -1}
         )
 
-        for p in [p1, p2, p3, p4, p5]:
+        # 6. IMO 2024 Problem 1: Floor sum divisibility and hypothesis revision
+        p6 = ProblemRecord(
+            problem_id="imo-2024-floor-sum",
+            source="controlled",
+            source_url="https://www.imo-official.org/problems/IMO2024Problems.pdf",
+            retrieved_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            statement=(
+                "Determine all real numbers \\alpha such that for every positive integer n, "
+                "the sum \\sum_{k=1}^n \\lfloor k\\alpha \\rfloor is a multiple of n."
+            ),
+            original_statement="IMO 2024 Problem 1: Determine all real numbers \\alpha such that for every positive integer n, \\sum_{k=1}^n \\lfloor k\\alpha \\rfloor is a multiple of n.",
+            subject="number_theory",
+            difficulty="IMO Level",
+            official_answer="All even integers: \\alpha \\in 2\\mathbb{Z} (i.e. \\alpha = 2m for m \\in \\mathbb{Z})",
+            reference_solution=(
+                "1. Sufficiency: If \\alpha = 2m is an even integer (m \\in \\mathbb{Z}), then \\lfloor k\\alpha \\rfloor = 2mk. "
+                "The sum is \\sum_{k=1}^n 2mk = 2m * (n(n+1)/2) = m * n(n+1), which is divisible by n for all n >= 1.\n"
+                "2. Necessity for Integers: If \\alpha = 2m + 1 is an odd integer, testing n = 2 gives: "
+                "\\lfloor \\alpha \\rfloor + \\lfloor 2\\alpha \\rfloor = (2m+1) + (4m+2) = 6m+3 = 2(3m+1) + 1, "
+                "which is odd and never divisible by 2. Hence no odd integer works.\n"
+                "3. Necessity for Non-integers: If \\alpha is not an integer, let \\alpha = m + r with 0 < r < 1. "
+                "The average S_n/n = \\alpha(n+1)/2 - (1/n)\\sum_{k=1}^n {k\\alpha}. "
+                "For S_n to be divisible by n for all n, \\alpha must be an integer, which forces \\alpha to be an even integer."
+            ),
+            license="Official IMO / Public Domain",
+            metadata={"category": "olympiad_divisibility", "imo_year": 2024, "problem_number": 1}
+        )
+
+        # 7. Advanced Real Analysis: Indeterminate exponential limit and asymptotic correction
+        p7 = ProblemRecord(
+            problem_id="analysis-indeterminate-exponential-limit",
+            source="controlled",
+            source_url="internal://advanced-analysis-limits",
+            retrieved_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            statement=(
+                "Investigate the limiting behavior of the function "
+                "f(x) = (\\frac{\\sin x}{x})^{1/x^2} as x \\to 0. "
+                "Determine the exact value of the limit L = \\lim_{x \\to 0} f(x), "
+                "and find the next nonzero term in its asymptotic expansion as x \\to 0."
+            ),
+            original_statement="f(x) = (sin(x)/x)**(1/x**2). Find limit as x -> 0 and asymptotic expansion.",
+            subject="real_analysis",
+            difficulty="Level 4",
+            official_answer="L = e^(-1/6), asymptotic expansion: e^(-1/6) * (1 - x^2/180 + O(x^4))",
+            reference_solution=(
+                "Let y = ln f(x) = ln(sin(x)/x) / x^2. "
+                "By Taylor expansion: sin(x)/x = 1 - x^2/6 + x^4/120 - O(x^6). "
+                "Using ln(1 - u) = -u - u^2/2 - O(u^3) with u = x^2/6 - x^4/120: "
+                "ln(sin(x)/x) = -(x^2/6 - x^4/120) - 1/2*(x^2/6)^2 - O(x^6) "
+                "= -x^2/6 + x^4/120 - x^4/72 = -x^2/6 - x^4/180 - O(x^6). "
+                "Dividing by x^2: ln f(x) = -1/6 - x^2/180 - O(x^4). "
+                "Exponentiating: f(x) = exp(-1/6 - x^2/180 - O(x^4)) = e^(-1/6) * (1 - x^2/180 + O(x^4)). "
+                "Thus L = e^(-1/6) and the next term is -e^(-1/6)/180 * x^2."
+            ),
+            license="MIT",
+            metadata={"category": "asymptotic_analysis", "exact_limit": "exp(-1/6)"}
+        )
+
+        # 8. Number Theory / Algebra: Diophantine cubic sum
+        p8 = ProblemRecord(
+            problem_id="diophantine-cubic-sum",
+            source="controlled",
+            source_url="internal://diophantine-cubes",
+            retrieved_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            statement=(
+                "Find all positive integer quadruples (x, y, z, w) satisfying "
+                "x^3 + y^3 + z^3 = w^3 with 1 \\le x < y < z < w \\le 20."
+            ),
+            original_statement="Solve x^3 + y^3 + z^3 = w^3 for 1 <= x < y < z < w <= 20.",
+            subject="number_theory",
+            difficulty="Level 3",
+            official_answer=(
+                "7 solutions: (1, 6, 8, 9), (2, 12, 16, 18), (3, 4, 5, 6), (3, 10, 18, 19), "
+                "(6, 8, 10, 12), (7, 14, 17, 20), (9, 12, 15, 18)"
+            ),
+            reference_solution=(
+                "Exhaustive search over 1 <= x < y < z < w <= 20 yields exactly 7 solutions:\n"
+                "1. Primitive solutions:\n"
+                "   - (1, 6, 8, 9): 1 + 216 + 512 = 729 = 9^3\n"
+                "   - (3, 4, 5, 6): 27 + 64 + 125 = 216 = 6^3 (Plato's number)\n"
+                "   - (3, 10, 18, 19): 27 + 1000 + 5832 = 6859 = 19^3\n"
+                "   - (7, 14, 17, 20): 343 + 2744 + 4913 = 8000 = 20^3\n"
+                "2. Derived homotheties:\n"
+                "   - (2, 12, 16, 18) = 2 * (1, 6, 8, 9)\n"
+                "   - (6, 8, 10, 12) = 2 * (3, 4, 5, 6)\n"
+                "   - (9, 12, 15, 18) = 3 * (3, 4, 5, 6)"
+            ),
+            license="MIT",
+            metadata={"category": "diophantine", "solutions_count": 7}
+        )
+
+        for p in [p1, p2, p3, p4, p5, p6, p7, p8]:
             self._records[p.problem_id] = p
 
         self.save_records(list(self._records.values()), "problems.jsonl")

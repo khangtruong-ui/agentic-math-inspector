@@ -12,13 +12,25 @@ def test_controlled_problem_source(tmp_path):
     """Controlled source should generate canonical problems with ground truth."""
     source = ControlledProblemSource(cache_dir=tmp_path)
     problems = source.list_problems()
-    assert len(problems) >= 5
+    assert len(problems) >= 8
 
     euler = source.get_problem("controlled-euler-primality")
     assert euler is not None
     assert "n^2 + n + 41" in euler.statement
     assert euler.official_answer is not None
     assert "40" in euler.official_answer
+
+    imo_p = source.get_problem("imo-2024-floor-sum")
+    assert imo_p is not None
+    assert "even" in imo_p.official_answer.lower()
+
+    limit_p = source.get_problem("analysis-indeterminate-exponential-limit")
+    assert limit_p is not None
+    assert "e^(-1/6)" in limit_p.official_answer
+
+    cube_p = source.get_problem("diophantine-cubic-sum")
+    assert cube_p is not None
+    assert "7 solutions" in cube_p.official_answer
 
 
 def test_reference_answer_separation():
