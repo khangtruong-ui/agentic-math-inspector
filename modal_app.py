@@ -1,10 +1,9 @@
 """Modal Application for Mathematical Investigation Agent (MIA).
 
 Defines remote compute functions for isolated, scalable execution of
-model-generated mathematical experiments and verification routines.
+model-generated mathematical experiments, verification routines,
+and GPU-accelerated Hugging Face LLM inference.
 """
-
-from __future__ import annotations
 
 import io
 import json
@@ -14,10 +13,13 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import modal
 
-# Define standard scientific container image for mathematical experiments
+# Volume for caching Hugging Face model weights across container launches
+hf_cache_vol = modal.Volume.from_name("mia-hf-cache", create_if_missing=True)
+
+# Standard scientific container image for mathematical experiments
 mia_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install(
@@ -28,7 +30,97 @@ mia_image = (
     )
 )
 
+# GPU-accelerated container image for Hugging Face LLM serving
+gpu_llm_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "torch>=2.2.0",
+        "transformers>=4.40.0",
+        "accelerate>=0.28.0",
+        "sentencepiece",
+        "huggingface_hub",
+        "numpy"
+    )
+)
+
 app = modal.App("mia-executor")
+
+
+@app.cls(
+    image=gpu_llm_image,
+    gpu="T4",
+    timeout=600,
+    volumes={"/root/.cache/huggingface": hf_cache_vol}
+)
+class ModalHuggingFaceLLM:
+    """GPU-accelerated open-weights LLM inference pulled directly from Hugging Face."""
+
+    model_id: str = modal.parameter(default="Qwen/Qwen2.5-Math-1.5B-Instruct")
+
+    @modal.enter()
+    def setup(self):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        print(f"Loading Hugging Face model '{self.model_id}' on Modal GPU...")
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_id,
+            trust_remote_code=True
+        )
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_id,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True
+        )
+        print("Model loaded successfully on GPU!")
+
+    @modal.method()
+    def generate(
+        self,
+        messages: List[Dict[str, str]],
+        max_new_tokens: int = 1024,
+        temperature: float = 0.2
+    ) -> Dict[str, Any]:
+        """Generate response given chat messages."""
+        import time
+        import torch
+
+        start_time = time.monotonic()
+
+        # Format chat messages using the model's tokenizer chat template
+        try:
+            prompt_text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+        except Exception:
+            # Fallback if chat template is missing
+            prompt_text = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
+
+        inputs = self.tokenizer([prompt_text], return_tensors="pt").to(self.model.device)
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature if temperature > 0 else None,
+                do_sample=temperature > 0,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+
+        new_tokens = outputs[0][inputs.input_ids.shape[1]:]
+        response_text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        duration = time.monotonic() - start_time
+
+        return {
+            "content": response_text,
+            "prompt_tokens": int(inputs.input_ids.shape[1]),
+            "completion_tokens": int(len(new_tokens)),
+            "latency_seconds": round(duration, 4),
+            "model": self.model_id
+        }
 
 
 @app.function(
@@ -150,7 +242,6 @@ def smoke_test() -> Dict[str, Any]:
     import scipy as sp
     import sympy as sym
 
-    # Compute a symbolic and numerical verification check
     x = sym.Symbol("x")
     expr = sym.diff(sym.sin(x**2), x)
 

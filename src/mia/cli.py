@@ -180,6 +180,8 @@ def show_problem(
 def solve_problem(
     problem_identifier: str = typer.Argument(..., help="Problem ID (e.g. 'controlled-euler-primality') or path to local problem file"),
     config_file: Optional[Path] = typer.Option(None, "--config-file", "-c", help="Configuration YAML file"),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider: 'openai', 'anthropic', 'gemini', 'mock', 'modal-huggingface', 'huggingface'"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model name or Hugging Face repo (e.g. 'Qwen/Qwen2.5-Math-1.5B-Instruct')"),
     backend: Optional[str] = typer.Option(None, "--backend", "-b", help="Override backend ('local' or 'modal')"),
     max_steps: Optional[int] = typer.Option(None, "--max-steps", help="Override max investigation steps"),
     demo: bool = typer.Option(False, "--demo", help="Run in reproducible offline demonstration mode")
@@ -187,6 +189,10 @@ def solve_problem(
     """Start an autonomous mathematical investigation for a problem."""
     try:
         cli_overrides = {}
+        if provider:
+            cli_overrides["model.provider"] = provider
+        if model:
+            cli_overrides["model.model"] = model
         if backend:
             cli_overrides["execution.backend"] = backend
         if max_steps:
@@ -398,7 +404,7 @@ def generate_report(
 
 
 # ---------------------------------------------------------------------
-# Modal Smoke Test Command
+# Modal Smoke Test & GPU LLM Commands
 # ---------------------------------------------------------------------
 @modal_app_cmd.command("smoke-test")
 def modal_smoke_test():
@@ -415,6 +421,53 @@ def modal_smoke_test():
         ))
     except Exception as e:
         console.print(f"[bold red]Modal Remote Smoke Test Failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
+@modal_app_cmd.command("run-llm")
+def modal_run_llm(
+    prompt: str = typer.Argument(..., help="Mathematical question or prompt for the LLM"),
+    model: str = typer.Option("Qwen/Qwen2.5-Math-1.5B-Instruct", "--model", "-m", help="Hugging Face model identifier to run on GPU"),
+    max_tokens: int = typer.Option(512, "--max-tokens", help="Max generation tokens"),
+    temperature: float = typer.Option(0.2, "--temperature", help="Sampling temperature")
+):
+    """Pull an open-weights LLM from Hugging Face and run inference on Modal GPU."""
+    try:
+        import sys
+        from pathlib import Path
+        cwd_str = str(Path.cwd().resolve())
+        if cwd_str not in sys.path:
+            sys.path.insert(0, cwd_str)
+        import modal_app
+
+        console.print(f"Submitting inference request for Hugging Face model '[bold cyan]{model}[/bold cyan]' on Modal GPU...")
+        try:
+            import modal
+            llm_cls = modal.Cls.from_name("mia-executor", "ModalHuggingFaceLLM")
+            llm = llm_cls(model_id=model)
+            res = llm.generate.remote(
+                messages=[{"role": "user", "content": prompt}],
+                max_new_tokens=max_tokens,
+                temperature=temperature
+            )
+        except Exception:
+            with modal_app.app.run():
+                llm = modal_app.ModalHuggingFaceLLM(model_id=model)
+                res = llm.generate.remote(
+                    messages=[{"role": "user", "content": prompt}],
+                    max_new_tokens=max_tokens,
+                    temperature=temperature
+                )
+
+        console.print(Panel(
+            res.get("content", ""),
+            title=f"[bold green]Hugging Face Model Response ({model})[/bold green]",
+            border_style="green"
+        ))
+        console.print(f"Tokens: {res.get('completion_tokens')} | Latency: {res.get('latency_seconds')}s")
+
+    except Exception as e:
+        console.print(f"[bold red]Modal GPU LLM Inference Failed:[/bold red] {e}")
         raise typer.Exit(code=1)
 
 

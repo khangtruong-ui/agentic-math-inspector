@@ -15,8 +15,9 @@ Unknown configuration keys are rejected strictly by default to catch typos.
 ## Configuration Schema
 
 ### 1. Model Settings (`model`)
-- `provider`: `"mock" | "openai" | "anthropic" | "gemini"`
-- `model`: Model name (e.g. `"gpt-4o"`, `"claude-3-5-sonnet-20241022"`, `"mock-investigator"`)
+- `provider`: `"mock" | "modal-huggingface" | "huggingface" | "openai" | "anthropic" | "gemini"`
+- `model`: Model name or Hugging Face repository identifier (e.g. `"Qwen/Qwen2.5-Math-1.5B-Instruct"`, `"Qwen/Qwen2.5-7B-Instruct"`, `"gpt-4o"`, `"mock-investigator"`)
+- `gpu`: GPU accelerator type on Modal when using `modal-huggingface` (default: `"T4"`, also supports `"L4"`, `"A10G"`)
 - `api_endpoint`: Optional custom API endpoint (e.g. for Ollama or vLLM proxy)
 - `api_key_env_var`: Name of environment variable holding the API key (default: `"OPENAI_API_KEY"`)
 - `temperature`: Sampling temperature (0.0 to 2.0, default 0.2)

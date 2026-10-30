@@ -467,10 +467,162 @@ class MockDeterministicClient(BaseModelClient):
         )
 
 
+class ModalHuggingFaceClient(BaseModelClient):
+    """Client for running open-weights Hugging Face LLMs on Modal GPUs."""
+
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        import sys
+        from pathlib import Path
+        cwd_str = str(Path.cwd().resolve())
+        if cwd_str not in sys.path:
+            sys.path.insert(0, cwd_str)
+
+    def generate(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[ToolDefinition]] = None
+    ) -> ModelResponse:
+        import re
+        import uuid
+        import modal_app
+
+        formatted_msgs = []
+        tools_instructions = ""
+        if tools:
+            tools_list = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters_schema
+                }
+                for t in tools
+            ]
+            tools_instructions = (
+                "\n\nYou have access to the following mathematical tools:\n"
+                f"{json.dumps(tools_list, indent=2)}\n\n"
+                "To invoke a tool, output a JSON block in the format:\n"
+                "<tool_call>\n"
+                "{\"name\": \"<tool_name>\", \"arguments\": {<args>}}\n"
+                "</tool_call>\n"
+            )
+
+        for m in messages:
+            content = m.content or ""
+            if m.role == "system":
+                content += tools_instructions
+            elif m.role == "tool":
+                content = f"[Tool '{m.name}' Result]: {content}"
+            role = "assistant" if m.role == "assistant" else ("user" if m.role == "user" else "system")
+            formatted_msgs.append({"role": role, "content": content})
+
+        # Run remote GPU inference on Modal
+        try:
+            import modal
+            llm_cls = modal.Cls.from_name("mia-executor", "ModalHuggingFaceLLM")
+            llm_engine = llm_cls(model_id=self.config.model)
+            res = llm_engine.generate.remote(
+                messages=formatted_msgs,
+                max_new_tokens=min(self.config.max_tokens, 1024),
+                temperature=self.config.temperature
+            )
+        except Exception:
+            with modal_app.app.run():
+                llm_engine = modal_app.ModalHuggingFaceLLM(model_id=self.config.model)
+                res = llm_engine.generate.remote(
+                    messages=formatted_msgs,
+                    max_new_tokens=min(self.config.max_tokens, 1024),
+                    temperature=self.config.temperature
+                )
+
+        raw_content = res.get("content", "")
+
+        # Extract tool calls if model produced any
+        tool_calls = []
+        pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+        matches = pattern.findall(raw_content)
+        if not matches:
+            json_blocks = re.findall(r"```(?:json)?\s*(\{\s*\"(?:name|tool)\".*?\})\s*```", raw_content, re.DOTALL)
+            matches = json_blocks
+
+        for m_str in matches:
+            try:
+                parsed = json.loads(m_str.strip())
+                name = parsed.get("name") or parsed.get("tool")
+                args = parsed.get("arguments") or parsed.get("args") or {}
+                if name:
+                    tool_calls.append({
+                        "id": f"call_hf_{uuid.uuid4().hex[:6]}",
+                        "name": name,
+                        "arguments": args
+                    })
+            except Exception:
+                pass
+
+        return ModelResponse(
+            content=raw_content,
+            tool_calls=tool_calls,
+            usage=TokenUsage(
+                prompt_tokens=res.get("prompt_tokens", 0),
+                completion_tokens=res.get("completion_tokens", 0),
+                total_tokens=res.get("prompt_tokens", 0) + res.get("completion_tokens", 0)
+            ),
+            latency_seconds=res.get("latency_seconds", 0.0),
+            model=self.config.model,
+            provider="modal-huggingface"
+        )
+
+
+class LocalHuggingFaceClient(BaseModelClient):
+    """Client for running Hugging Face models locally using transformers."""
+
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        self._pipe = None
+
+    def generate(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[ToolDefinition]] = None
+    ) -> ModelResponse:
+        try:
+            import torch
+            from transformers import pipeline
+        except ImportError:
+            raise RuntimeError("Install torch and transformers to run local Hugging Face models: pip install torch transformers")
+
+        if self._pipe is None:
+            self._pipe = pipeline(
+                "text-generation",
+                model=self.config.model,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                device_map="auto"
+            )
+
+        formatted_msgs = [{"role": m.role, "content": m.content or ""} for m in messages]
+        start_time = time.monotonic()
+        out = self._pipe(formatted_msgs, max_new_tokens=min(self.config.max_tokens, 512), temperature=self.config.temperature)
+        duration = time.monotonic() - start_time
+
+        gen_text = out[0]["generated_text"][-1]["content"] if out else ""
+        return ModelResponse(
+            content=gen_text,
+            tool_calls=[],
+            usage=TokenUsage(prompt_tokens=100, completion_tokens=100, total_tokens=200),
+            latency_seconds=round(duration, 4),
+            model=self.config.model,
+            provider="huggingface"
+        )
+
+
 def get_model_client(config: ModelConfig) -> BaseModelClient:
     """Factory to instantiate the configured model client."""
     if config.provider == "mock":
         return MockDeterministicClient(config)
+    elif config.provider == "modal-huggingface":
+        return ModalHuggingFaceClient(config)
+    elif config.provider == "huggingface":
+        return LocalHuggingFaceClient(config)
     elif config.provider == "openai":
         return OpenAICompatibleClient(config)
     elif config.provider == "anthropic":
@@ -479,5 +631,5 @@ def get_model_client(config: ModelConfig) -> BaseModelClient:
         return GeminiClient(config)
     else:
         raise ValueError(
-            f"Unsupported provider: '{config.provider}'. Supported: 'mock', 'openai', 'anthropic', 'gemini'."
+            f"Unsupported provider: '{config.provider}'. Supported: 'mock', 'modal-huggingface', 'huggingface', 'openai', 'anthropic', 'gemini'."
         )

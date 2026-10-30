@@ -20,13 +20,17 @@ class StrictBaseModel(BaseModel):
 
 class ModelConfig(StrictBaseModel):
     """Configuration for LLM reasoning and generation."""
-    provider: Literal["openai", "anthropic", "gemini", "mock"] = Field(
+    provider: Literal["openai", "anthropic", "gemini", "mock", "modal-huggingface", "huggingface"] = Field(
         default="mock",
-        description="LLM provider: 'openai', 'anthropic', 'gemini', or 'mock'"
+        description="LLM provider: 'openai', 'anthropic', 'gemini', 'mock', 'modal-huggingface', or 'huggingface'"
     )
     model: str = Field(
         default="mock-investigator",
-        description="Model identifier, e.g. 'gpt-4o', 'claude-3-5-sonnet-20241022', or 'mock-investigator'"
+        description="Model identifier, e.g. 'Qwen/Qwen2.5-Math-1.5B-Instruct', 'gpt-4o', etc."
+    )
+    gpu: Optional[str] = Field(
+        default="T4",
+        description="GPU type for Modal Hugging Face inference (e.g. 'T4', 'L4', 'A10G')"
     )
     api_endpoint: Optional[str] = Field(
         default=None,

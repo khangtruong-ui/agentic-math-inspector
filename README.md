@@ -49,6 +49,7 @@ For each mathematical task, MIA executes an explicit 10-phase cycle:
   - `execute_experiment`: Arbitrary Python sandbox execution.
   - `verify_solution`: Independent mathematical verification tier.
   - `inspect_investigation`: Structured inspection of past experiment results.
+- **Open-Weights Hugging Face Models on Modal GPU**: Pull and serve any open-source mathematical LLM from Hugging Face (such as `Qwen/Qwen2.5-Math-1.5B-Instruct`, `Qwen/Qwen2.5-7B-Instruct`, or `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`) running on dedicated serverless GPUs (`T4`, `L4`, `A10G`) with persistent model weight caching.
 - **Safe Dual-Backend Execution**:
   - **Local Subprocess**: Subprocess sandbox with memory/time capping and environment sanitization (no secret leakage).
   - **Modal Cloud**: Remote serverless execution on Debian Slim scientific containers with CPU/memory resource bounding.
@@ -170,9 +171,13 @@ mia sources sync --source imo --year 2024
 mia problems list --source controlled
 mia problems show controlled-euler-primality
 
+# Run inference with open-weights LLM from Hugging Face on Modal GPU
+mia modal run-llm "Solve for x: x^2 - 5x + 6 = 0." --model "Qwen/Qwen2.5-Math-1.5B-Instruct"
+
 # Solve a problem locally or via Modal cloud
 mia solve controlled-euler-primality
 mia solve controlled-analysis-limit --backend modal
+mia solve controlled-analysis-limit --provider modal-huggingface --model "Qwen/Qwen2.5-Math-1.5B-Instruct" --backend modal
 
 # Resume an interrupted investigation
 mia resume <investigation_id> --steps 5
